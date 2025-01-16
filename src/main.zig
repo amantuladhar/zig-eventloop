@@ -23,6 +23,7 @@ pub fn main() !void {
     const event_data: EventData = .{
         .data = &tcp_conn_acceptor,
         .callback = TcpConnectionAcceptor.accept_tcp_connection,
+        .allocator = allocator,
     };
     const stdin = std.io.getStdIn();
     std.log.debug("STDIN Handle == {d}", .{stdin.handle});
@@ -72,7 +73,7 @@ pub fn main() !void {
                     continue;
                 }
                 const r_event_data: *EventData = @ptrFromInt(event.udata);
-                r_event_data.callback(r_event_data.data) catch |e| {
+                r_event_data.callback(r_event_data) catch |e| {
                     std.log.err("Something went wrong when calling event callback: {any}", .{e});
                 };
             }
@@ -87,10 +88,13 @@ const EchoHandler = struct {
 
     const Self = @This();
 
-    fn echo(data: ?*anyopaque) anyerror!void {
-        const self: *Self = @ptrCast(@alignCast(data));
-        // fixme: need to do this when client closes
-        // defer self.conn.stream.close();
+    fn deinit(self: *Self) void {
+        self.conn.stream.close();
+        self.allocator.destroy(self);
+    }
+
+    fn echo(event_data: *EventData) anyerror!void {
+        const self: *Self = @ptrCast(@alignCast(event_data.data));
 
         const reader = self.conn.stream.reader();
         const writer = self.conn.stream.writer();
@@ -98,7 +102,10 @@ const EchoHandler = struct {
         std.log.info("Waiting for client message", .{});
         const msg = reader.readUntilDelimiterAlloc(self.allocator, '\n', 1024) catch |err| {
             if (err == error.EndOfStream) {
-                defer self.conn.stream.close();
+                defer {
+                    self.deinit();
+                    event_data.deinit();
+                }
                 const changelist: []const posix.Kevent = &[_]posix.Kevent{.{
                     .ident = @intCast(self.conn.stream.handle),
                     .filter = std.c.EVFILT_READ,
@@ -125,10 +132,16 @@ const EchoHandler = struct {
     }
 };
 
-const EventCallback = *const fn (?*anyopaque) anyerror!void;
+const EventCallback = *const fn (*EventData) anyerror!void;
 const EventData = struct {
+    // todo: Can this be comptime?
     data: ?*anyopaque,
     callback: EventCallback,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
+    }
 };
 
 const TcpConnectionAcceptor = struct {
@@ -138,9 +151,9 @@ const TcpConnectionAcceptor = struct {
 
     const Self = @This();
 
-    fn accept_tcp_connection(data: ?*anyopaque) anyerror!void {
-        const self: *Self = @ptrCast(@alignCast(data));
-        // fixme: close the connection
+    fn accept_tcp_connection(event_data: *EventData) anyerror!void {
+        const self: *Self = @ptrCast(@alignCast(event_data.data));
+
         const conn = try self.server.accept();
 
         // fixme: where this should be deallocated?
@@ -151,13 +164,10 @@ const TcpConnectionAcceptor = struct {
         errdefer self.allocator.destroy(echo_handler_data);
         echo_handler_data.* = .{ .conn = conn, .allocator = self.allocator, .event_fd = self.event_fd };
 
-        // const ptr_v = @intFromPtr(echo_handler_data);
-        // std.log.info("PointerAddr for echo data: {d:2x}", .{ptr_v});
-        // std.log.info("Value for echo: {any} ", .{echo_handler_data});
-
         conn_data.* = .{
             .data = echo_handler_data,
             .callback = EchoHandler.echo,
+            .allocator = self.allocator,
         };
 
         const changelist: []const posix.Kevent = &[_]posix.Kevent{.{
