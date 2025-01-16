@@ -1,24 +1,29 @@
 const std = @import("std");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const gpa_alloc = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const addr = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, 4200);
+    var server = try addr.listen(.{});
+    defer server.deinit();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    std.log.info("Server started on :4200", .{});
 
-    try bw.flush(); // don't forget to flush!
-}
+    var client = try server.accept();
+    std.log.info("Client connected!! {any}", .{client.address});
+    defer client.stream.close();
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    const reader = client.stream.reader();
+    const writer = client.stream.writer();
+    while (true) {
+        const msg = try reader.readUntilDelimiterAlloc(gpa_alloc, '\n', 1024);
+        defer gpa_alloc.free(msg);
+
+        const server_msg = try std.fmt.allocPrint(gpa_alloc, "[SERVER]: {s}\n", .{msg});
+        defer gpa_alloc.free(server_msg);
+
+        try writer.writeAll(server_msg);
+    }
 }
