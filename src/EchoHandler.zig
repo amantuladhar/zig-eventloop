@@ -1,19 +1,28 @@
 const std = @import("std");
 const posix = std.posix;
-const EventData = @import("EventData.zig");
+const Allocator = std.mem.Allocator;
+const EventData = @import("EventData.zig").EventData;
+const EventLoop = @import("EventLoop.zig");
+const Connection = std.net.Server.Connection;
 
-event_fd: i32,
+evloop: *const EventLoop,
 allocator: std.mem.Allocator,
-conn: std.net.Server.Connection,
+conn: Connection,
 
 const Self = @This();
 
-fn deinit(self: *Self) void {
+pub fn init(allocator: Allocator, evloop: *const EventLoop, conn: Connection) !*Self {
+    const self = try allocator.create(Self);
+    self.* = .{ .allocator = allocator, .evloop = evloop, .conn = conn };
+    return self;
+}
+
+pub fn deinit(self: *Self) void {
     self.conn.stream.close();
     self.allocator.destroy(self);
 }
 
-pub fn echo(event_data: *EventData) anyerror!void {
+pub fn callback(event_data: *EventData(Self)) anyerror!void {
     const self: *Self = @ptrCast(@alignCast(event_data.data));
 
     const reader = self.conn.stream.reader();
@@ -22,21 +31,9 @@ pub fn echo(event_data: *EventData) anyerror!void {
     std.log.info("Waiting for client message", .{});
     const msg = reader.readUntilDelimiterAlloc(self.allocator, '\n', 1024) catch |err| {
         if (err == error.EndOfStream) {
-            defer {
-                self.deinit();
-                event_data.deinit();
-            }
-            const changelist: []const posix.Kevent = &[_]posix.Kevent{.{
-                .ident = @intCast(self.conn.stream.handle),
-                .filter = std.c.EVFILT_READ,
-                .flags = std.c.EV_DELETE | std.c.EV_DISABLE,
-                .fflags = 0,
-                .data = 0,
-                .udata = 0,
-            }};
-            var events: [1]posix.Kevent = undefined;
-            const nev = try posix.kevent(self.event_fd, changelist, &events, null);
-            _ = nev;
+            std.log.info("Client {d} connection closed", .{self.conn.stream.handle});
+            defer event_data.deinit();
+            try self.evloop.unsubscribe(self.conn.stream.handle, .Read);
             return;
         }
         return err;

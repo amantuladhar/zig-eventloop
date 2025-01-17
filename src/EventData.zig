@@ -1,12 +1,33 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
-pub const EventCallback = *const fn (*@This()) anyerror!void;
+pub fn EventData(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        data: *T,
+        data_deinit: ?*const fn (*T) void = null,
+        callback: *const fn (*Self) anyerror!void,
+        allocator: Allocator,
 
-// todo: Can this be comptime?
-data: ?*anyopaque,
-callback: EventCallback,
-allocator: std.mem.Allocator,
+        pub fn init(alloc: Allocator, data: T) !*Self {
+            const t = try alloc.create(T);
+            errdefer alloc.destroy(t);
+            t.* = data;
 
-pub fn deinit(self: *@This()) void {
-    self.allocator.destroy(self);
+            const self = try alloc.create(Self);
+            const cb = @field(T, "callback");
+            self.* = .{ .allocator = alloc, .data = t, .callback = cb };
+            if (@hasDecl(T, "deinit")) {
+                self.*.data_deinit = @field(T, "deinit");
+            }
+            return self;
+        }
+
+        pub fn deinit(self: *Self) void {
+            if (self.data_deinit != null) {
+                self.data_deinit.?(self.data);
+            }
+            self.allocator.destroy(self);
+        }
+    };
 }
