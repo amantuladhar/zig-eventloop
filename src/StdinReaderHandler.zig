@@ -18,7 +18,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn callback(edata: *EventData(Self)) anyerror!void {
-    const self: *Self = @ptrCast(@alignCast(edata.data));
+    // const self: *Self = @ptrCast(@alignCast(edata.data));
+    const self: *Self = edata.data;
     const stdin = std.io.getStdIn();
     var buf: [10]u8 = undefined;
     const read_count = try stdin.reader().read(&buf);

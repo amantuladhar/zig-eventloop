@@ -22,7 +22,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn callback(event_data: *EventData(Self)) anyerror!void {
-    const self: *Self = @ptrCast(@alignCast(event_data.data));
+    // const self: *Self = @ptrCast(@alignCast(event_data.data));
+    const self: *Self = event_data.data;
     const conn = try self.server.accept();
     const edata = try EventData(EchoHandler).init(self.allocator, .{
         .allocator = self.allocator,
