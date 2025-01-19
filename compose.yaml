@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    command: [ "sleep", "infinity"]
+    platform: linux/amd64
+    working_dir: /app
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - "./:/app"
