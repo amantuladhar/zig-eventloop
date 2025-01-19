@@ -1,5 +1,6 @@
 const std = @import("std");
 const posix = std.posix;
+const Allocator = std.mem.Allocator;
 const ClientConnectionAcceptHandler = @import("ClientConnectionAcceptHandler.zig");
 const StdinReader = @import("StdinReader.zig");
 const EventLoop = @import("EventLoop.zig");
@@ -13,33 +14,31 @@ pub fn main() !void {
     const evloop = try EventLoop.init();
     defer evloop.deinit();
 
-    const addr = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, 4200);
-    var server = try addr.listen(.{ .reuse_address = true, .reuse_port = true, .force_nonblocking = true });
-    defer server.deinit();
-    std.log.info("Server started on :4200", .{});
+    var server = try startNonblockingServer(4200);
 
-    var event_data = try EventData(ClientConnectionAcceptHandler).init(allocator, .{ .allocator = allocator, .evloop = &evloop, .server = &server });
-    defer event_data.deinit();
-    try evloop.subscribe(server.stream.handle, .Read, ClientConnectionAcceptHandler, event_data);
-
-    var stdin_edata = try EventData(StdinReader).init(allocator, .{ .allocator = allocator, .evloop = &evloop });
+    var client_connect_edata = try subscribeToServerSocketRead(allocator, &evloop, &server);
+    defer client_connect_edata.deinit();
+    var stdin_edata = try subscribeToStdinRead(allocator, &evloop);
     defer stdin_edata.deinit();
-    try evloop.subscribe(std.io.getStdIn().handle, .Read, StdinReader, stdin_edata);
 
-    var events: [10]posix.Kevent = undefined;
-    std.log.info("Server started on :4200", .{});
-    main_loop: while (true) {
-        const nev = try posix.kevent(evloop.eventfd, &.{}, &events, null);
-        std.log.info("Number of event received: {d}", .{nev});
-        for (events[0..nev]) |event| {
-            const r_event_data: *EventData(anyopaque) = @ptrFromInt(event.udata);
-            r_event_data.callback(r_event_data) catch |e| {
-                if (e == error.StopServer) {
-                    std.log.err("STOP SERVER received", .{});
-                    break :main_loop;
-                }
-                std.log.err("Something went wrong when calling event callback: {any}", .{e});
-            };
-        }
-    }
+    try evloop.run();
+}
+
+fn subscribeToStdinRead(allocator: Allocator, evloop: *const EventLoop) !*EventData(StdinReader) {
+    const edata = try EventData(StdinReader).init(allocator, .{ .allocator = allocator, .evloop = evloop });
+    try evloop.subscribe(std.io.getStdIn().handle, .Read, StdinReader, edata);
+    return edata;
+}
+
+fn subscribeToServerSocketRead(allocator: Allocator, evloop: *const EventLoop, server: *std.net.Server) !*EventData(ClientConnectionAcceptHandler) {
+    const edata = try EventData(ClientConnectionAcceptHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop, .server = server });
+    try evloop.subscribe(server.stream.handle, .Read, ClientConnectionAcceptHandler, edata);
+    return edata;
+}
+
+fn startNonblockingServer(port: u16) !std.net.Server {
+    const addr = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, port);
+    const server = try addr.listen(.{ .reuse_address = true, .reuse_port = true, .force_nonblocking = true });
+    std.log.info("server started on :4200", .{});
+    return server;
 }

@@ -27,7 +27,7 @@ pub fn callback(event_data: *EventData(Self)) anyerror!void {
 
     // fixme: doesn't free when server itself closes
     // when server closes, we need a way to deallocate this
-    // when client disconnects, echo_handler deallocates itself.
+    // when client disconnects, echo handler is handling deallocation and unsubscribing business
     const edata = try EventData(EchoHandler).init(self.allocator, .{
         .allocator = self.allocator,
         .evloop = self.evloop,

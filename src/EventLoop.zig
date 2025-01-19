@@ -27,7 +27,7 @@ pub fn subscribe(self: *const Self, fd: i32, interest: Interest, comptime T: typ
     }};
     var events: [0]posix.Kevent = undefined;
     _ = try posix.kevent(self.eventfd, changelist, &events, null);
-    std.log.debug("Finished subscribe::: fd {d}", .{fd});
+    std.log.debug("subscribed -> type={s}, interest={s}, fd={d}", .{ @typeName(T), @tagName(interest), fd });
 }
 
 pub fn unsubscribe(self: *const Self, fd: i32, interest: Interest) !void {
@@ -41,5 +41,26 @@ pub fn unsubscribe(self: *const Self, fd: i32, interest: Interest) !void {
     }};
     var events: [0]posix.Kevent = undefined;
     _ = try posix.kevent(self.eventfd, changelist, &events, null);
-    std.log.debug("Finished unsubscribe::: fd {d}", .{fd});
+    std.log.debug("unsubscribed -> interest={s}, fd={d}", .{ @tagName(interest), fd });
+}
+
+pub fn run(self: *const Self) !void {
+    std.log.info("running event loop...", .{});
+    var events: [10]posix.Kevent = undefined;
+    main_loop: while (true) {
+        const nev = try posix.kevent(self.eventfd, &.{}, &events, null);
+        std.log.info("received {d} events", .{nev});
+        for (events[0..nev]) |event| {
+            const edata: *EventData(anyopaque) = @ptrFromInt(event.udata);
+            edata.callback(edata) catch |e| {
+                // fixme: maybe error is not right way to solve this?
+                // should we always return a typed result from callback instead of void?
+                if (e == error.StopServer) {
+                    std.log.info("bummmmmerrrrr... I was just ordered to kill myself :(", .{});
+                    break :main_loop;
+                }
+                std.log.err("error occurred while processing event. Err = {any}", .{e});
+            };
+        }
+    }
 }
