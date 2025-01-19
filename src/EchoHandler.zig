@@ -5,13 +5,13 @@ const EventData = @import("EventData.zig").EventData;
 const EventLoop = @import("EventLoop.zig");
 const Connection = std.net.Server.Connection;
 
-evloop: *const EventLoop,
+evloop: *EventLoop,
 allocator: std.mem.Allocator,
 conn: Connection,
 
 const Self = @This();
 
-pub fn init(allocator: Allocator, evloop: *const EventLoop, conn: Connection) !*Self {
+pub fn init(allocator: Allocator, evloop: *EventLoop, conn: Connection) !*Self {
     const self = try allocator.create(Self);
     self.* = .{ .allocator = allocator, .evloop = evloop, .conn = conn };
     return self;
@@ -32,7 +32,6 @@ pub fn callback(event_data: *EventData(Self)) anyerror!void {
     const msg = reader.readUntilDelimiterAlloc(self.allocator, '\n', 1024) catch |err| {
         if (err == error.EndOfStream) {
             std.log.info("Client {d} connection closed", .{self.conn.stream.handle});
-            defer event_data.deinit();
             try self.evloop.unsubscribe(self.conn.stream.handle, .Read);
             return;
         }

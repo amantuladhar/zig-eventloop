@@ -5,18 +5,23 @@ const EventData = @import("EventData.zig").EventData;
 pub const Interest = enum(comptime_int) { Read = std.c.EVFILT_READ };
 
 eventfd: i32,
+registered_fds: std.AutoHashMap(i32, *EventData(anyopaque)),
 
 const Self = @This();
 
-pub fn init() !Self {
-    return .{ .eventfd = try posix.kqueue() };
+pub fn init(allocator: std.mem.Allocator) !Self {
+    return .{
+        .eventfd = try posix.kqueue(),
+        .registered_fds = std.AutoHashMap(i32, *EventData(anyopaque)).init(allocator),
+    };
 }
 
-pub fn deinit(self: *const Self) void {
+pub fn deinit(self: *Self) void {
+    self.registered_fds.deinit();
     posix.close(self.eventfd);
 }
 
-pub fn subscribe(self: *const Self, fd: i32, interest: Interest, comptime T: type, edata: *EventData(T)) !void {
+pub fn subscribe(self: *Self, fd: i32, interest: Interest, comptime T: type, edata: *EventData(T)) !void {
     const changelist: []const posix.Kevent = &[_]posix.Kevent{.{
         .ident = @intCast(fd),
         .filter = @intFromEnum(interest),
@@ -27,10 +32,12 @@ pub fn subscribe(self: *const Self, fd: i32, interest: Interest, comptime T: typ
     }};
     var events: [0]posix.Kevent = undefined;
     _ = try posix.kevent(self.eventfd, changelist, &events, null);
+    _ = try self.registered_fds.put(fd, @ptrCast(edata));
+    std.log.debug("registered fds size= {any}", .{self.registered_fds.count()});
     std.log.debug("subscribed -> type={s}, interest={s}, fd={d}", .{ @typeName(T), @tagName(interest), fd });
 }
 
-pub fn unsubscribe(self: *const Self, fd: i32, interest: Interest) !void {
+pub fn unsubscribe(self: *Self, fd: i32, interest: Interest) !void {
     const changelist: []const posix.Kevent = &[_]posix.Kevent{.{
         .ident = @intCast(fd),
         .filter = @intFromEnum(interest),
@@ -41,10 +48,15 @@ pub fn unsubscribe(self: *const Self, fd: i32, interest: Interest) !void {
     }};
     var events: [0]posix.Kevent = undefined;
     _ = try posix.kevent(self.eventfd, changelist, &events, null);
+
+    var edata = self.registered_fds.fetchRemove(fd);
+    edata.?.value.deinit();
+
+    std.log.debug("registered fds size = {any}", .{self.registered_fds.count()});
     std.log.debug("unsubscribed -> interest={s}, fd={d}", .{ @tagName(interest), fd });
 }
 
-pub fn run(self: *const Self) !void {
+pub fn run(self: *Self) !void {
     std.log.info("running event loop...", .{});
     var events: [10]posix.Kevent = undefined;
     main_loop: while (true) {
@@ -62,5 +74,11 @@ pub fn run(self: *const Self) !void {
                 std.log.err("error occurred while processing event. Err = {any}", .{e});
             };
         }
+    }
+    // Making sure we close all existing file descriptor and cleaning up the resources
+    var it = self.registered_fds.iterator();
+    while (it.next()) |entry| {
+        std.log.info("closing fd {d}", .{entry.key_ptr.*});
+        entry.value_ptr.*.deinit();
     }
 }

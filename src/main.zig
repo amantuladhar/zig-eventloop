@@ -1,8 +1,8 @@
 const std = @import("std");
 const posix = std.posix;
 const Allocator = std.mem.Allocator;
-const ClientConnectionAcceptHandler = @import("ClientConnectionAcceptHandler.zig");
-const StdinReader = @import("StdinReader.zig");
+const ClientConnAcceptHandler = @import("ClientConnAcceptHandler.zig");
+const StdinReaderHandler = @import("StdinReaderHandler.zig");
 const EventLoop = @import("EventLoop.zig");
 const EventData = @import("EventData.zig").EventData;
 
@@ -11,28 +11,26 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const evloop = try EventLoop.init();
+    var evloop = try EventLoop.init(allocator);
     defer evloop.deinit();
 
     var server = try startNonblockingServer(4200);
 
-    var client_connect_edata = try subscribeToServerSocketRead(allocator, &evloop, &server);
-    defer client_connect_edata.deinit();
-    var stdin_edata = try subscribeToStdinRead(allocator, &evloop);
-    defer stdin_edata.deinit();
+    _ = try setupClientConnAccept(allocator, &evloop, &server);
+    _ = try setupStdinReader(allocator, &evloop);
 
     try evloop.run();
 }
 
-fn subscribeToStdinRead(allocator: Allocator, evloop: *const EventLoop) !*EventData(StdinReader) {
-    const edata = try EventData(StdinReader).init(allocator, .{ .allocator = allocator, .evloop = evloop });
-    try evloop.subscribe(std.io.getStdIn().handle, .Read, StdinReader, edata);
+fn setupStdinReader(allocator: Allocator, evloop: *EventLoop) !*EventData(StdinReaderHandler) {
+    const edata = try EventData(StdinReaderHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop });
+    try evloop.subscribe(std.io.getStdIn().handle, .Read, StdinReaderHandler, edata);
     return edata;
 }
 
-fn subscribeToServerSocketRead(allocator: Allocator, evloop: *const EventLoop, server: *std.net.Server) !*EventData(ClientConnectionAcceptHandler) {
-    const edata = try EventData(ClientConnectionAcceptHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop, .server = server });
-    try evloop.subscribe(server.stream.handle, .Read, ClientConnectionAcceptHandler, edata);
+fn setupClientConnAccept(allocator: Allocator, evloop: *EventLoop, server: *std.net.Server) !*EventData(ClientConnAcceptHandler) {
+    const edata = try EventData(ClientConnAcceptHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop, .server = server });
+    try evloop.subscribe(server.stream.handle, .Read, ClientConnAcceptHandler, edata);
     return edata;
 }
 

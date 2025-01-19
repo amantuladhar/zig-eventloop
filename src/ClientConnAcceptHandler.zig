@@ -6,7 +6,7 @@ const EventLoop = @import("EventLoop.zig");
 const Allocator = std.mem.Allocator;
 
 allocator: Allocator,
-evloop: *const EventLoop,
+evloop: *EventLoop,
 server: *std.net.Server,
 
 const Self = @This();
@@ -24,10 +24,6 @@ pub fn deinit(self: *Self) void {
 pub fn callback(event_data: *EventData(Self)) anyerror!void {
     const self: *Self = @ptrCast(@alignCast(event_data.data));
     const conn = try self.server.accept();
-
-    // fixme: doesn't free when server itself closes
-    // when server closes, we need a way to deallocate this
-    // when client disconnects, echo handler is handling deallocation and unsubscribing business
     const edata = try EventData(EchoHandler).init(self.allocator, .{
         .allocator = self.allocator,
         .evloop = self.evloop,

@@ -6,9 +6,9 @@ const EventLoop = @import("EventLoop.zig");
 const Self = @This();
 
 allocator: Allocator,
-evloop: *const EventLoop,
+evloop: *EventLoop,
 
-pub fn init(allocator: Allocator, evloop: *const EventLoop) !*Self {
+pub fn init(allocator: Allocator, evloop: *EventLoop) !*Self {
     const self = try allocator.create(Self);
     self.* = .{ .allocator = allocator, .evloop = evloop };
     return self;
