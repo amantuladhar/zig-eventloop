@@ -26,6 +26,6 @@ pub fn callback(edata: *EventData(Self)) anyerror!void {
     if (!std.mem.eql(u8, "exit", buf[0 .. read_count - 1])) {
         return;
     }
-    try self.evloop.unsubscribe(stdin.handle, .Read);
+    try self.evloop.unregister(stdin.handle, .Read);
     return error.StopServer;
 }

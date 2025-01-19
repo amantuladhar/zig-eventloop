@@ -33,7 +33,7 @@ pub fn callback(event_data: *EventData(Self)) anyerror!void {
     const msg = reader.readUntilDelimiterAlloc(self.allocator, '\n', 1024) catch |err| {
         if (err == error.EndOfStream) {
             std.log.info("Client {d} connection closed", .{self.conn.stream.handle});
-            try self.evloop.unsubscribe(self.conn.stream.handle, .Read);
+            try self.evloop.unregister(self.conn.stream.handle, .Read);
             return;
         }
         return err;

@@ -24,7 +24,7 @@ pub fn EventData(comptime T: type) type {
         }
 
         /// No need to deinit this yourself
-        /// When event is unsubscribed, or if event loop is stopped
+        /// When event is unregistered, or if event loop is stopped
         /// we call deinit automatically
         pub fn deinit(self: *Self) void {
             if (self.data_deinit != null) {

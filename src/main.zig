@@ -24,13 +24,13 @@ pub fn main() !void {
 
 fn setupStdinReader(allocator: Allocator, evloop: *EventLoop) !*EventData(StdinReaderHandler) {
     const edata = try EventData(StdinReaderHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop });
-    try evloop.subscribe(std.io.getStdIn().handle, .Read, StdinReaderHandler, edata);
+    try evloop.register(std.io.getStdIn().handle, .Read, StdinReaderHandler, edata);
     return edata;
 }
 
 fn setupClientConnAccept(allocator: Allocator, evloop: *EventLoop, server: *std.net.Server) !*EventData(ClientConnAcceptHandler) {
     const edata = try EventData(ClientConnAcceptHandler).init(allocator, .{ .allocator = allocator, .evloop = evloop, .server = server });
-    try evloop.subscribe(server.stream.handle, .Read, ClientConnAcceptHandler, edata);
+    try evloop.register(server.stream.handle, .Read, ClientConnAcceptHandler, edata);
     return edata;
 }
 

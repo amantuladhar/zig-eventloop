@@ -3,14 +3,6 @@ const builtin = @import("builtin");
 const posix = std.posix;
 const EventData = @import("EventData.zig").EventData;
 
-pub const Interest = enum(comptime_int) {
-    Read = switch (builtin.os.tag) {
-        .macos => std.c.EVFILT_READ,
-        .linux => std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ET,
-        else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
-    },
-};
-
 eventfd: i32,
 registered_fds: std.AutoHashMap(i32, *EventData(anyopaque)),
 
@@ -28,22 +20,22 @@ pub fn deinit(self: *Self) void {
     posix.close(self.eventfd);
 }
 
-pub fn subscribe(self: *Self, fd: i32, interest: Interest, comptime T: type, edata: *EventData(T)) !void {
+pub fn register(self: *Self, fd: i32, interest: Interest, comptime T: type, edata: *EventData(T)) !void {
     try registerEvent(self.eventfd, fd, interest, @intFromPtr(edata));
     _ = try self.registered_fds.put(fd, @ptrCast(edata));
 
     std.log.debug("registered fds size= {any}", .{self.registered_fds.count()});
-    std.log.debug("subscribed -> type={s}, interest={s}, fd={d}", .{ @typeName(T), @tagName(interest), fd });
+    std.log.debug("register -> type={s}, interest={s}, fd={d}", .{ @typeName(T), @tagName(interest), fd });
 }
 
-pub fn unsubscribe(self: *Self, fd: i32, interest: Interest) !void {
+pub fn unregister(self: *Self, fd: i32, interest: Interest) !void {
     try unregisterEvent(self.eventfd, fd, interest);
 
     var edata = self.registered_fds.fetchRemove(fd);
     edata.?.value.deinit();
 
     std.log.debug("registered fds size = {any}", .{self.registered_fds.count()});
-    std.log.debug("unsubscribed -> interest={s}, fd={d}", .{ @tagName(interest), fd });
+    std.log.debug("unregister -> interest={s}, fd={d}", .{ @tagName(interest), fd });
 }
 
 pub fn run(self: *Self) !void {
@@ -53,11 +45,7 @@ pub fn run(self: *Self) !void {
         const nev = try poll(self.eventfd, &events);
         std.log.info("received {d} events", .{nev});
         for (events[0..nev]) |event| {
-            const edata: *EventData(anyopaque) = switch (builtin.os.tag) {
-                .macos => @ptrFromInt(event.udata),
-                .linux => @ptrFromInt(event.data.ptr),
-                else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
-            };
+            const edata = parseEventData(&event);
             edata.callback(edata) catch |e| {
                 // fixme: maybe error is not right way to solve this?
                 // should we always return a typed result from callback instead of void?
@@ -76,12 +64,28 @@ pub fn run(self: *Self) !void {
         entry.value_ptr.*.deinit();
     }
 }
+pub const Interest = enum(comptime_int) {
+    Read = switch (builtin.os.tag) {
+        .macos => std.c.EVFILT_READ,
+        .linux => std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ET,
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
+    },
+};
 
 const Event = switch (builtin.os.tag) {
     .macos => posix.Kevent,
     .linux => std.os.linux.epoll_event,
     else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
 };
+
+fn parseEventData(event: *const Event) *EventData(anyopaque) {
+    const edata: *EventData(anyopaque) = switch (builtin.os.tag) {
+        .macos => @ptrFromInt(event.udata),
+        .linux => @ptrFromInt(event.data.ptr),
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
+    };
+    return edata;
+}
 
 fn poll(queuefd: i32, events: []Event) !usize {
     return switch (builtin.os.tag) {

@@ -31,5 +31,5 @@ pub fn callback(event_data: *EventData(Self)) anyerror!void {
         .conn = conn,
     });
     errdefer edata.deinit();
-    try self.evloop.subscribe(conn.stream.handle, .Read, EchoHandler, edata);
+    try self.evloop.register(conn.stream.handle, .Read, EchoHandler, edata);
 }
